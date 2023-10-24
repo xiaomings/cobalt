@@ -148,6 +148,7 @@ MediaSource::MediaSource(script::EnvironmentSettings* settings)
       source_buffers_(new SourceBufferList(settings, &event_queue_)),
       active_source_buffers_(new SourceBufferList(settings, &event_queue_)),
       live_seekable_range_(new TimeRanges) {
+  LOG(INFO) << "MediaSource ctor called on " << this;
   LOG(INFO) << "Algorithm offloading is "
             << (algorithm_offload_enabled_ ? "enabled" : "disabled");
   LOG(INFO) << "Asynchronous reduction is "
@@ -156,7 +157,10 @@ MediaSource::MediaSource(script::EnvironmentSettings* settings)
             << max_size_for_immediate_job_;
 }
 
-MediaSource::~MediaSource() { SetReadyState(kMediaSourceReadyStateClosed); }
+MediaSource::~MediaSource() {
+  LOG(INFO) << "MediaSource dtor called on " << this;
+  SetReadyState(kMediaSourceReadyStateClosed);
+}
 
 scoped_refptr<SourceBufferList> MediaSource::source_buffers() const {
   return source_buffers_;
@@ -232,7 +236,8 @@ scoped_refptr<SourceBuffer> MediaSource::AddSourceBuffer(
     script::EnvironmentSettings* settings, const std::string& type,
     script::ExceptionState* exception_state) {
   TRACE_EVENT1("cobalt::dom", "MediaSource::AddSourceBuffer()", "type", type);
-  LOG(INFO) << "add SourceBuffer with type " << type;
+  LOG(INFO) << "adding SourceBuffer with type " << type << " to MediaSource "
+            << this;
 
   if (type.empty()) {
     web::DOMException::Raise(web::DOMException::kInvalidAccessErr,
@@ -273,6 +278,10 @@ scoped_refptr<SourceBuffer> MediaSource::AddSourceBuffer(
 
   DCHECK(source_buffer);
   source_buffers_->Add(source_buffer);
+
+  LOG(INFO) << "added SourceBuffer " << source_buffer << " to MediaSource "
+            << this;
+
   return source_buffer;
 }
 
@@ -301,7 +310,8 @@ void MediaSource::RemoveSourceBuffer(
 void MediaSource::EndOfStreamAlgorithm(MediaSourceEndOfStreamError error) {
   if (IsClosed()) {
     if (IsCallingEndedWhenClosedEnabled(environment_settings())) {
-      LOG(INFO) << "Setting state to ended when MediaSource object is closed";
+      LOG(INFO) << "Setting state to ended when MediaSource " << this
+                << " is closed.";
       // Calling the function below here leads to ANR in production, as
       // EndOfStreamAlgorithm() can be called by SetReadyState().
       // Calling SetReadyState() nestedly leads to re-entrance of Abort() on
@@ -310,8 +320,8 @@ void MediaSource::EndOfStreamAlgorithm(MediaSourceEndOfStreamError error) {
       // original behavior in production.
       SetReadyState(kMediaSourceReadyStateEnded);
     } else {
-      LOG(INFO)
-          << "Skip setting state to ended when MediaSource object is closed";
+      LOG(INFO) << "Skip setting state to ended when MediaSource " << this
+                << " is closed.";
     }
   } else {
     SetReadyState(kMediaSourceReadyStateEnded);
@@ -401,6 +411,10 @@ bool MediaSource::IsTypeSupported(script::EnvironmentSettings* settings,
 
 bool MediaSource::AttachToElement(HTMLMediaElement* media_element) {
   if (attached_element_) {
+    LOG(INFO) << "Failed to attach MediaSource " << this
+              << " to HTMLMediaElement " << media_element
+              << ", as it's already attached to HTMLMediaElement "
+              << attached_element_.get();
     return false;
   }
 
@@ -410,24 +424,29 @@ bool MediaSource::AttachToElement(HTMLMediaElement* media_element) {
   attached_element_ = base::AsWeakPtr(media_element);
   has_max_video_capabilities_ = media_element->HasMaxVideoCapabilities();
 
+  LOG(INFO) << "Attached MediaSource " << this << " to HTMLMediaElement "
+            << media_element;
+
   if (algorithm_offload_enabled_) {
     algorithm_process_thread_.reset(new base::Thread("MSEAlgorithm"));
     if (!algorithm_process_thread_->Start()) {
       LOG(WARNING) << "Starting algorithm process thread failed, disable"
-                      " algorithm offloading";
+                      " algorithm offloading on MediaSource "
+                   << this;
       algorithm_process_thread_.reset();
     }
   }
 
   if (algorithm_process_thread_) {
-    LOG(INFO) << "Algorithm offloading enabled.";
+    LOG(INFO) << "Algorithm offloading enabled on MediaSource " << this;
     offload_algorithm_runner_.reset(
         new OffloadAlgorithmRunner<SourceBufferAlgorithm>(
             algorithm_process_thread_->message_loop()->task_runner(),
             base::ThreadTaskRunnerHandle::Get()));
   } else {
-    LOG(INFO) << "Algorithm offloading disabled.";
+    LOG(INFO) << "Algorithm offloading disabled on MediaSource " << this;
   }
+
   return true;
 }
 

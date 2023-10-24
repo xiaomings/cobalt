@@ -178,8 +178,10 @@ SourceBuffer::SourceBuffer(script::EnvironmentSettings* settings,
   DCHECK(chunk_demuxer);
   DCHECK(event_queue);
 
-  LOG(INFO) << "Evict extra in bytes is set to " << evict_extra_in_bytes_;
-  LOG(INFO) << "Max append size in bytes is set to " << max_append_buffer_size_;
+  LOG(INFO) << "Evict extra in bytes is set to " << evict_extra_in_bytes_
+            << " for SourceBuffer " << this;
+  LOG(INFO) << "Max append size in bytes is set to " << max_append_buffer_size_
+            << " for SourceBuffer " << this;
 
   chunk_demuxer_->SetTracksWatcher(
       id_,
@@ -613,6 +615,8 @@ void SourceBuffer::AppendBufferInternal(
     script::ExceptionState* exception_state) {
   TRACE_EVENT1("cobalt::dom", "SourceBuffer::AppendBufferInternal()", "size",
                size);
+  DVLOG(1) << "Appending " << size << " bytes to SourceBuffer " << this;
+
   if (!PrepareAppend(size, exception_state)) {
     return;
   }
