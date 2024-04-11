@@ -357,6 +357,12 @@ struct CompileAssert {};
 #endif
 #endif
 
+#if SB_API_VERSION > 15
+#if defined(SB_HAS_QUIRK_SUPPORT_INT16_AUDIO_SAMPLES)
+#error "SB_HAS_QUIRK_SUPPORT_INT16_AUDIO_SAMPLES is deprecated in v16 or later."
+#endif  // defined(SB_HAS_QUIRK_SUPPORT_INT16_AUDIO_SAMPLES)
+#endif  // SB_API_VERSION > 15
+
 // SB_EXPORT_PLATFORM annotates symbols as exported from shared libraries.
 #if SB_API_VERSION < 16
 #if !defined(SB_EXPORT_PLATFORM)
