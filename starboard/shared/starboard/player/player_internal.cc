@@ -42,9 +42,9 @@ int64_t CalculateMediaTime(int64_t media_time,
 
 }  // namespace
 
-int SbPlayerPrivate::number_of_players_ = 0;
+int SbPlayerPrivateImpl::number_of_players_ = 0;
 
-SbPlayerPrivate::SbPlayerPrivate(
+SbPlayerPrivateImpl::SbPlayerPrivateImpl(
     SbMediaAudioCodec audio_codec,
     SbMediaVideoCodec video_codec,
     SbPlayerDeallocateSampleFunc sample_deallocate_func,
@@ -58,17 +58,17 @@ SbPlayerPrivate::SbPlayerPrivate(
       media_time_updated_at_(starboard::CurrentMonotonicTime()) {
   worker_ = std::unique_ptr<PlayerWorker>(PlayerWorker::CreateInstance(
       audio_codec, video_codec, std::move(player_worker_handler),
-      std::bind(&SbPlayerPrivate::UpdateMediaInfo, this, _1, _2, _3, _4),
+      std::bind(&SbPlayerPrivateImpl::UpdateMediaInfo, this, _1, _2, _3, _4),
       decoder_status_func, player_status_func, player_error_func, this,
       context));
 
   ++number_of_players_;
-  SB_DLOG(INFO) << "Creating SbPlayerPrivate. There are " << number_of_players_
-                << " players.";
+  SB_DLOG(INFO) << "Creating SbPlayerPrivateImpl. There are "
+                << number_of_players_ << " players.";
 }
 
 // static
-SbPlayerPrivate* SbPlayerPrivate::CreateInstance(
+SbPlayerPrivate* SbPlayerPrivateImpl::CreateInstance(
     SbMediaAudioCodec audio_codec,
     SbMediaVideoCodec video_codec,
     SbPlayerDeallocateSampleFunc sample_deallocate_func,
@@ -77,7 +77,7 @@ SbPlayerPrivate* SbPlayerPrivate::CreateInstance(
     SbPlayerErrorFunc player_error_func,
     void* context,
     std::unique_ptr<PlayerWorker::Handler> player_worker_handler) {
-  SbPlayerPrivate* ret = new SbPlayerPrivate(
+  SbPlayerPrivateImpl* ret = new SbPlayerPrivateImpl(
       audio_codec, video_codec, sample_deallocate_func, decoder_status_func,
       player_status_func, player_error_func, context,
       std::move(player_worker_handler));
@@ -89,7 +89,7 @@ SbPlayerPrivate* SbPlayerPrivate::CreateInstance(
   return nullptr;
 }
 
-void SbPlayerPrivate::Seek(int64_t seek_to_time, int ticket) {
+void SbPlayerPrivateImpl::Seek(int64_t seek_to_time, int ticket) {
   {
     starboard::ScopedLock lock(mutex_);
     SB_DCHECK(ticket_ != ticket);
@@ -102,24 +102,24 @@ void SbPlayerPrivate::Seek(int64_t seek_to_time, int ticket) {
   worker_->Seek(seek_to_time, ticket);
 }
 
-void SbPlayerPrivate::WriteEndOfStream(SbMediaType stream_type) {
+void SbPlayerPrivateImpl::WriteEndOfStream(SbMediaType stream_type) {
   worker_->WriteEndOfStream(stream_type);
 }
 
-void SbPlayerPrivate::SetBounds(int z_index,
-                                int x,
-                                int y,
-                                int width,
-                                int height) {
+void SbPlayerPrivateImpl::SetBounds(int z_index,
+                                    int x,
+                                    int y,
+                                    int width,
+                                    int height) {
   PlayerWorker::Bounds bounds = {z_index, x, y, width, height};
   worker_->SetBounds(bounds);
   // TODO: Wait until a frame is rendered with the updated bounds.
 }
 
 #if SB_API_VERSION >= 15
-void SbPlayerPrivate::GetInfo(SbPlayerInfo* out_player_info) {
+void SbPlayerPrivateImpl::GetInfo(SbPlayerInfo* out_player_info) {
 #else   // SB_API_VERSION >= 15
-void SbPlayerPrivate::GetInfo(SbPlayerInfo2* out_player_info) {
+void SbPlayerPrivateImpl::GetInfo(SbPlayerInfo2* out_player_info) {
 #endif  // SB_API_VERSION >= 15
   SB_DCHECK(out_player_info != NULL);
 
@@ -142,25 +142,25 @@ void SbPlayerPrivate::GetInfo(SbPlayerInfo2* out_player_info) {
   out_player_info->playback_rate = playback_rate_;
 }
 
-void SbPlayerPrivate::SetPause(bool pause) {
+void SbPlayerPrivateImpl::SetPause(bool pause) {
   is_paused_ = pause;
   worker_->SetPause(pause);
 }
 
-void SbPlayerPrivate::SetPlaybackRate(double playback_rate) {
+void SbPlayerPrivateImpl::SetPlaybackRate(double playback_rate) {
   playback_rate_ = playback_rate;
   worker_->SetPlaybackRate(playback_rate);
 }
 
-void SbPlayerPrivate::SetVolume(double volume) {
+void SbPlayerPrivateImpl::SetVolume(double volume) {
   volume_ = volume;
   worker_->SetVolume(volume_);
 }
 
-void SbPlayerPrivate::UpdateMediaInfo(int64_t media_time,
-                                      int dropped_video_frames,
-                                      int ticket,
-                                      bool is_progressing) {
+void SbPlayerPrivateImpl::UpdateMediaInfo(int64_t media_time,
+                                          int dropped_video_frames,
+                                          int ticket,
+                                          bool is_progressing) {
   starboard::ScopedLock lock(mutex_);
   if (ticket_ != ticket) {
     return;
@@ -171,11 +171,11 @@ void SbPlayerPrivate::UpdateMediaInfo(int64_t media_time,
   dropped_video_frames_ = dropped_video_frames;
 }
 
-SbDecodeTarget SbPlayerPrivate::GetCurrentDecodeTarget() {
+SbDecodeTarget SbPlayerPrivateImpl::GetCurrentDecodeTarget() {
   return worker_->GetCurrentDecodeTarget();
 }
 
-bool SbPlayerPrivate::GetAudioConfiguration(
+bool SbPlayerPrivateImpl::GetAudioConfiguration(
     int index,
     SbMediaAudioConfiguration* out_audio_configuration) {
   SB_DCHECK(index >= 0);
