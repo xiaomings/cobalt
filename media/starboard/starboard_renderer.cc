@@ -58,10 +58,12 @@ StarboardRenderer::StarboardRenderer(
     VideoRendererSink* video_renderer_sink)
     : task_runner_(task_runner),
       video_renderer_sink_(video_renderer_sink),
-      video_overlay_factory_(std::make_unique<VideoOverlayFactory>()) {
+      video_overlay_factory_(std::make_unique<VideoOverlayFactory>()),
+      set_bounds_helper_(new SbPlayerSetBoundsHelper) {
   DCHECK(task_runner_);
   DCHECK(video_renderer_sink_);
   DCHECK(video_overlay_factory_);
+  DCHECK(set_bounds_helper_);
   LOG(INFO) << "StarboardRenderer constructed.";
 }
 
@@ -275,6 +277,11 @@ base::TimeDelta StarboardRenderer::GetMediaTime() {
   return media_time;
 }
 
+Renderer::SetBoundsCB StarboardRenderer::GetSetBoundsCB() {
+  return base::BindOnce(&SbPlayerSetBoundsHelper::SetBounds,
+                        set_bounds_helper_);
+}
+
 void StarboardRenderer::CreatePlayerBridge(PipelineStatusCallback init_cb) {
   DCHECK(task_runner_->RunsTasksInCurrentSequence());
   DCHECK(init_cb);
@@ -340,9 +347,7 @@ void StarboardRenderer::CreatePlayerBridge(PipelineStatusCallback init_cb) {
         // TODO(b/326508279): Support background mode.
         kSbWindowInvalid,
         // TODO(b/328305808): Implement SbDrm support.
-        kSbDrmSystemInvalid, this,
-        // TODO(b/376320224); Verify set bounds works
-        nullptr,
+        kSbDrmSystemInvalid, this, set_bounds_helper_.get(),
         // TODO(b/326497953): Support suspend/resume.
         false,
         // TODO(b/326825450): Revisit 360 videos.
