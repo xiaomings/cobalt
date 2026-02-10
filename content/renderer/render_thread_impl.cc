@@ -161,6 +161,9 @@
 #include "third_party/blink/public/web/web_view.h"
 #include "third_party/skia/include/core/SkFontMgr.h"
 #include "third_party/skia/include/core/SkGraphics.h"
+#if BUILDFLAG(IS_COBALT)
+#include "third_party/skia/include/core/SkStream.h"
+#endif  // BUILDFLAG(IS_COBALT)
 #include "ui/base/layout.h"
 #include "ui/base/ui_base_features.h"
 #include "ui/base/ui_base_switches.h"
@@ -707,8 +710,19 @@ void RenderThreadImpl::Init() {
   variations_observer_ = std::make_unique<VariationsRenderThreadObserver>();
   AddObserver(variations_observer_.get());
 
+#if BUILDFLAG(IS_COBALT)
+  base::ThreadPool::PostTask(
+      FROM_HERE,
+      base::BindOnce([] {
+          if (base::FeatureList::IsEnabled(features::kSkiaFontCache)) {
+            SkMemoryStream::EnableMmapCache();
+          }
+          SkFontMgr::RefDefault();
+      }));
+#else // BUILDFLAG(IS_COBALT)
   base::ThreadPool::PostTask(FROM_HERE,
                              base::BindOnce([] { SkFontMgr::RefDefault(); }));
+#endif // BUILDFLAG(IS_COBALT)
 
   bool should_actively_sample_fonts =
       command_line.HasSwitch(kFirstRendererProcess) &&

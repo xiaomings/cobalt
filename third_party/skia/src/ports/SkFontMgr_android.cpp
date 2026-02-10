@@ -14,6 +14,7 @@
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkStream.h"
 #include "include/core/SkString.h"
+#include "include/core/SkTime.h"
 #include "include/ports/SkFontMgr_android.h"
 #include "include/private/base/SkFixed.h"
 #include "include/private/base/SkTArray.h"
@@ -469,6 +470,7 @@ private:
         fStyleSets.emplace_back(std::move(newSet));
     }
     void buildNameToFamilyMap(SkTDArray<FontFamily*> families, const bool isolated) {
+        double start = SkTime::GetNSecs();
         int familyIndex = 0;
         for (FontFamily* family : families) {
             addFamily(*family, isolated, familyIndex++);
@@ -476,6 +478,8 @@ private:
                 addFamily(*fallbackFamily, isolated, familyIndex++);
             }
         }
+        double end = SkTime::GetNSecs();
+        SkDebugf("buildNameToFamilyMap took %f ns.\n", end - start);
     }
 
     void findDefaultStyleSet() {
