@@ -14,6 +14,8 @@
 
 #include "cobalt/app/cobalt_main_delegate.h"
 
+#include "base/command_line.h"
+#include "base/base_switches.h"
 #include "base/process/current_process.h"
 #include "base/threading/hang_watcher.h"
 #include "base/trace_event/trace_log.h"
@@ -54,6 +56,19 @@ absl::optional<int> CobaltMainDelegate::BasicStartupComplete() {
   cl->AppendSwitch(switches::kEnableAggressiveDOMStorageFlushing);
   cl->AppendSwitch(switches::kDisableGpuShaderDiskCache);
   cl->AppendSwitch("cobalt-custom-should-disable-http-caching");
+
+#if BUILDFLAG(IS_ANDROIDTV) && !BUILDFLAG(COBALT_IS_RELEASE_BUILD)
+  // Enable system tracing on Android TV
+  std::string enabled_features =
+      cl->GetSwitchValueASCII(switches::kEnableFeatures);
+  if (!enabled_features.empty()) {
+    enabled_features += ",";
+  }
+  enabled_features += "EnablePerfettoSystemTracing";
+  cl->RemoveSwitch(switches::kEnableFeatures);
+  cl->AppendSwitchASCII(switches::kEnableFeatures, enabled_features);
+#endif  // BUILDFLAG(IS_ANDROIDTV) && !BUILDFLAG(COBALT_IS_RELEASE_BUILD)
+
   return content::ShellMainDelegate::BasicStartupComplete();
 }
 
