@@ -14,8 +14,8 @@
 
 #include "cobalt/app/cobalt_main_delegate.h"
 
-#include "base/command_line.h"
 #include "base/base_switches.h"
+#include "base/command_line.h"
 #include "base/process/current_process.h"
 #include "base/threading/hang_watcher.h"
 #include "base/trace_event/trace_log.h"
