@@ -96,7 +96,6 @@ class MEDIA_EXPORT DecoderBuffer
     // nullptr.
     static constexpr Handle kInvalidHandle = 0;
 
-    static Allocator* Get();
     static void Set(Allocator* allocator);
 
     // The function should never return kInvalidHandle.  It may terminate the
@@ -111,9 +110,17 @@ class MEDIA_EXPORT DecoderBuffer
     virtual base::TimeDelta GetBufferGarbageCollectionDurationThreshold()
         const = 0;
 
+    virtual void SetAllocateOnDemand(bool enabled) = 0;
+    virtual void EnableMediaBufferPoolStrategy() = 0;
+    virtual void EnableInPlaceReuseAllocatorBase() = 0;
+
    protected:
     ~Allocator() {}
   };
+
+  static void EnableAllocateOnDemand(bool enabled);
+  static void EnableMediaBufferPoolStrategy();
+  static void EnableInPlaceReuseAllocatorBase();
 #endif  // BUILDFLAG(USE_STARBOARD_MEDIA)
 
   // Allocates buffer with |size| >= 0. |is_key_frame_| will default to false.

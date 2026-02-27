@@ -19,7 +19,6 @@
 #include "cobalt/browser/h5vcc_settings/public/mojom/h5vcc_settings.mojom-blink.h"
 #include "media/base/decoder_buffer.h"
 #include "media/filters/source_buffer_state.h"
-#include "media/starboard/decoder_buffer_allocator.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
@@ -64,10 +63,10 @@ using SettingsMap = WTF::HashMap<WTF::String, EnableFunction>;
 
 const SettingsMap& GetDecoderBufferSettings() {
   static const base::NoDestructor<SettingsMap> settings({
-      {kEnableInPlaceReuseAllocatorBase,
-       &::media::DecoderBufferAllocator::EnableInPlaceReuseAllocatorBase},
       {kEnableMediaBufferPoolAllocatorStrategy,
-       &::media::DecoderBufferAllocator::EnableMediaBufferPoolStrategy},
+       &::media::DecoderBuffer::EnableMediaBufferPoolStrategy},
+      {kEnableInPlaceReuseAllocatorBase,
+       &::media::DecoderBuffer::EnableInPlaceReuseAllocatorBase},
   });
   return *settings;
 }

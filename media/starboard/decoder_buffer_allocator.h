@@ -19,7 +19,6 @@
 #include <sstream>
 
 #include "base/compiler_specific.h"
-#include "base/functional/callback.h"
 #include "base/synchronization/lock.h"
 #include "base/thread_annotations.h"
 #include "base/time/time.h"
@@ -51,16 +50,11 @@ class DecoderBufferAllocator : public DecoderBuffer::Allocator,
     virtual size_t GetAllocated() const = 0;
   };
 
-  using StrategyCreateCB = base::RepeatingCallback<
-      std::unique_ptr<Strategy>(int initial_capacity, int allocation_unit)>;
-
   explicit DecoderBufferAllocator();
   DecoderBufferAllocator(bool is_memory_pool_allocated_on_demand,
                          int initial_capacity,
                          int allocation_unit);
   ~DecoderBufferAllocator() override;
-
-  static DecoderBufferAllocator* Get();
 
   void Suspend();
   void Resume();
@@ -81,15 +75,23 @@ class DecoderBufferAllocator : public DecoderBuffer::Allocator,
   size_t GetCurrentMemoryCapacity() const override LOCKS_EXCLUDED(mutex_);
   size_t GetMaximumMemoryCapacity() const override LOCKS_EXCLUDED(mutex_);
 
-  void UpdateAllocatorStrategy(StrategyCreateCB create_cb);
-
-  // Utility functions for h5vcc settings.
-  // TODO(b/460292554): To be deprecated with h5vcc settings.
-  void SetAllocateOnDemand(bool enabled);
-  static void EnableInPlaceReuseAllocatorBase();
-  static void EnableMediaBufferPoolStrategy();
+  void SetAllocateOnDemand(bool enabled) override;
+  void EnableMediaBufferPoolStrategy() override;
+  void EnableInPlaceReuseAllocatorBase() override;
 
  private:
+  enum class MediaBufferPoolStrategyState {
+    kDisabled,
+    kEnabled,
+    kPendingEnabling,
+  };
+
+  enum class InPlaceReuseAllocatorBaseStrategyState {
+    kDisabled,
+    kEnabled,
+    kPendingEnabling,
+  };
+
   void EnsureStrategyIsCreated() EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
 #if !BUILDFLAG(COBALT_IS_RELEASE_BUILD)
@@ -102,8 +104,11 @@ class DecoderBufferAllocator : public DecoderBuffer::Allocator,
 
   mutable base::Lock mutex_;
   std::unique_ptr<Strategy> strategy_ GUARDED_BY(mutex_);
-  bool is_strategy_switch_pending_ GUARDED_BY(mutex_) = false;
-  StrategyCreateCB experimental_strategy_create_cb_ GUARDED_BY(mutex_);
+  MediaBufferPoolStrategyState media_buffer_pool_strategy_state_
+      GUARDED_BY(mutex_) = MediaBufferPoolStrategyState::kDisabled;
+  InPlaceReuseAllocatorBaseStrategyState
+      in_place_reuse_allocator_base_strategy_state_ GUARDED_BY(mutex_) =
+          InPlaceReuseAllocatorBaseStrategyState::kDisabled;
 
 #if !BUILDFLAG(COBALT_IS_RELEASE_BUILD)
   // The following variables are used for comprehensive logging of allocation
