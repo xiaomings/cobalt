@@ -444,6 +444,22 @@ void MediaDecoder::CollectPendingData_Locked(
                          pending_inputs_.end());
   pending_inputs_.clear();
 
+  for (auto input : *pending_inputs) {
+    if (input.input_buffer &&
+        input.input_buffer->video_sample_info().is_key_frame) {
+      while (pending_inputs->front().input_buffer &&
+             !pending_inputs->front()
+                  .input_buffer->video_sample_info()
+                  .is_key_frame) {
+        SB_LOG(INFO) << "Skipping video frame at "
+                     << pending_inputs->front().input_buffer->timestamp();
+        pending_inputs->pop_front();
+        --number_of_pending_inputs_;
+      }
+      break;
+    }
+  }
+
   input_buffer_indices->insert(input_buffer_indices->end(),
                                input_buffer_indices_.begin(),
                                input_buffer_indices_.end());
