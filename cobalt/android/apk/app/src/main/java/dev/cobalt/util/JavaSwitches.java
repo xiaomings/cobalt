@@ -94,6 +94,9 @@ public class JavaSwitches {
   /** flag to disable low performance software av1 decoder */
   public static final String DISABLE_SW_AV1_DECODER = "DisableLowPerformanceAv1Decoder";
 
+  /** flag to enable Async DNS mode and DNS over Https */
+  public static final String ENABLE_ASYNC_DNS_AND_DOH = "EnableAsyncDnsAndDoH";
+
   public static List<String> getExtraCommandLineArgs(Map<String, String> javaSwitches) {
     List<String> extraCommandLineArgs = new ArrayList<>();
     if (!javaSwitches.containsKey(JavaSwitches.ENABLE_QUIC)) {
@@ -206,6 +209,10 @@ public class JavaSwitches {
     }
     if (javaSwitches.containsKey(JavaSwitches.DISABLE_SW_AV1_DECODER)) {
       extraCommandLineArgs.add("--enable-features=RejectLowPerformanceSoftwareDecoder");
+    }
+
+    if (javaSwitches.containsKey(JavaSwitches.ENABLE_ASYNC_DNS_AND_DOH)) {
+      extraCommandLineArgs.add("--enable-features=AsyncDnsAndDoH");
     }
 
     return extraCommandLineArgs;
