@@ -130,7 +130,7 @@ class VideoDecoder
   void OnFirstTunnelFrameReady();
   void OnTunnelModeCheckForNeedMoreInput();
 
-  void OnVideoFrameRelease(int64_t pts_us, int64_t release_at_us);
+  void OnVideoFrameRelease();
 
   void OnSurfaceDestroyed() override;
   void ReportError(SbPlayerError error, const std::string& error_message);
@@ -161,8 +161,6 @@ class VideoDecoder
 
   // Set the maximum size in bytes of an input buffer for video.
   const int max_video_input_size_;
-
-  const int max_pending_inputs_size_;
 
   // SurfaceView from AndroidOverlay passed from StarboardRenderer to SbPlayer.
   void* surface_view_;
