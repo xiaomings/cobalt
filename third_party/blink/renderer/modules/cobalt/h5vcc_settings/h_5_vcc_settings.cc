@@ -19,6 +19,7 @@
 #include "media/base/decoder_buffer.h"
 #include "media/base/stream_parser.h"
 #include "media/filters/source_buffer_state.h"
+#include "media/starboard/decoder_buffer_allocator.h"
 #include "third_party/blink/public/platform/browser_interface_broker_proxy.h"
 #include "third_party/blink/renderer/bindings/core/v8/idl_types.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
@@ -31,10 +32,6 @@
 #include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
-
-#if BUILDFLAG(USE_STARBOARD_MEDIA)
-#include "media/starboard/decoder_buffer_allocator.h"
-#endif  // BUILDFLAG(USE_STARBOARD_MEDIA)
 
 namespace blink {
 namespace {
@@ -148,24 +145,16 @@ ScriptPromise<IDLUndefined> H5vccSettings::set(
   if (name == "DecoderBuffer.EnableDecommitableAllocatorStrategy") {
     return ProcessSettingAsEnableOnly(
         script_state, exception_context, name, *value, [] {
-#if BUILDFLAG(USE_STARBOARD_MEDIA)
           ::media::DecoderBufferAllocator::
               EnableDecommitableAllocatorStrategy();
           return true;
-#else   // BUILDFLAG(USE_STARBOARD_MEDIA)
-          return false;
-#endif  // BUILDFLAG(USE_STARBOARD_MEDIA)
         });
   }
   if (name == "DecoderBuffer.EnableMediaBufferPoolAllocatorStrategy") {
     return ProcessSettingAsEnableOnly(
         script_state, exception_context, name, *value, [] {
-#if BUILDFLAG(USE_STARBOARD_MEDIA)
           ::media::DecoderBufferAllocator::EnableMediaBufferPoolStrategy();
           return true;
-#else   // BUILDFLAG(USE_STARBOARD_MEDIA)
-          return false;
-#endif  // BUILDFLAG(USE_STARBOARD_MEDIA)
         });
   }
   // "DecoderBuffer." settings must be handled before this catch-all block.
@@ -185,24 +174,16 @@ ScriptPromise<IDLUndefined> H5vccSettings::set(
   if (name == "Media.ExperimentalMaxPendingBytesPerParse") {
     return ProcessSettingAsPositiveInt(
         script_state, exception_context, name, *value, [](int int_value) {
-#if BUILDFLAG(USE_STARBOARD_MEDIA)
           ::media::SourceBufferState::SetMaxPendingBytesPerParseOverride(
               int_value);
           return true;
-#else   // BUILDFLAG(USE_STARBOARD_MEDIA)
-          return false;
-#endif  // BUILDFLAG(USE_STARBOARD_MEDIA)
         });
   }
   if (name == "Media.IncrementalParseLookAhead") {
     return ProcessSettingAsEnableOnly(
         script_state, exception_context, name, *value, [] {
-#if BUILDFLAG(USE_STARBOARD_MEDIA)
           ::media::StreamParser::SetEnableIncrementalParseLookAhead(true);
           return true;
-#else   // BUILDFLAG(USE_STARBOARD_MEDIA)
-          return false;
-#endif  // BUILDFLAG(USE_STARBOARD_MEDIA)
         });
   }
 
