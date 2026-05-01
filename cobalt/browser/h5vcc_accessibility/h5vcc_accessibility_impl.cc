@@ -22,7 +22,7 @@
 #include "cobalt/browser/h5vcc_accessibility/h5vcc_accessibility_manager.h"
 
 #if BUILDFLAG(IS_ANDROIDTV)
-#include "starboard/android/shared/text_to_speech_helper.h"
+#include "starboard/android/shared/cobalt_text_to_speech_helper.h"
 #endif
 
 #if BUILDFLAG(IS_STARBOARD) || BUILDFLAG(IS_IOS_TVOS)

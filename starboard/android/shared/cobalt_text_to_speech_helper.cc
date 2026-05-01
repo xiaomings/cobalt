@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "starboard/android/shared/text_to_speech_helper.h"
+#include "starboard/android/shared/cobalt_text_to_speech_helper.h"
 
 #include "starboard/android/shared/starboard_bridge.h"
 

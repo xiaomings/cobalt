@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef STARBOARD_ANDROID_SHARED_TEXT_TO_SPEECH_HELPER_H_
-#define STARBOARD_ANDROID_SHARED_TEXT_TO_SPEECH_HELPER_H_
+#ifndef STARBOARD_ANDROID_SHARED_COBALT_TEXT_TO_SPEECH_HELPER_H_
+#define STARBOARD_ANDROID_SHARED_COBALT_TEXT_TO_SPEECH_HELPER_H_
 
 #include <jni.h>
 
@@ -42,4 +42,4 @@ class CobaltTextToSpeechHelper {
 
 }  // namespace starboard
 
-#endif  // STARBOARD_ANDROID_SHARED_TEXT_TO_SPEECH_HELPER_H_
+#endif  // STARBOARD_ANDROID_SHARED_COBALT_TEXT_TO_SPEECH_HELPER_H_
