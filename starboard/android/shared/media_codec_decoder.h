@@ -57,6 +57,10 @@ class MediaCodecDecoder final : private MediaCodec::Handler,
     bool enable_codec_thread_improvements = false;
   };
 
+  // How long the video output thread waits for new output buffers before it
+  // calls Host::Tick() again.
+  static constexpr int64_t kDefaultWaitForNextFrameIntervalUs = 8'000;
+
   MediaCodec* media_codec() const { return media_codec_bridge_.get(); }
 
   // This class should be implemented by the users of MediaCodecDecoder to
@@ -203,12 +207,20 @@ class MediaCodecDecoder final : private MediaCodec::Handler,
   // TODO(b/329686979): Consider turning MediaDecoder into a class hierarchy to
   // simplify the handling of threading, including the difference of a/v
   // threading in the original implementation in DecoderThreadFunc() above.
+  //
+  // Thread functions of the dual-thread video configuration.  The "V2"
+  // variants are used when |enable_codec_thread_improvements_| is true; see
+  // the definitions for details.
   void InputThreadFunc();
 
   void OutputThreadFunc();
+  void OutputThreadFuncV2();
 
   void TerminateDecoderThread();
 
+  // Move the pending inputs/input buffer indices/output results from the
+  // shared queues into the thread-local queues owned by the decoder threads.
+  // Must be called with |mutex_| held.
   void CollectPendingData_Locked(
       std::deque<PendingInput>* pending_inputs,
       std::vector<int>* input_buffer_indices,
