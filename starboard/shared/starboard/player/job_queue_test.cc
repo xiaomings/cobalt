@@ -32,16 +32,22 @@ using ::testing::ElementsAre;
 // Require at least millisecond-level precision.
 const int64_t kPrecisionUsec = 1000;
 
-class JobQueueTest : public ::testing::Test {
+// The tests are run against both JobQueue implementations, the parameter is
+// |use_optimized_implementation|.
+class JobQueueTest : public ::testing::TestWithParam<bool> {
  public:
-  JobQueueTest() : job_owner_(&job_queue_) {}
+  JobQueueTest() : job_queue_(GetParam()), job_owner_(&job_queue_) {}
   ~JobQueueTest() {}
 
   JobQueue job_queue_;
   JobQueue::JobOwner job_owner_;
 };
 
-TEST_F(JobQueueTest, OwnedScheduledJobsAreExecutedInOrder) {
+TEST_P(JobQueueTest, UsesRequestedImplementation) {
+  EXPECT_EQ(job_queue_.uses_optimized_implementation(), GetParam());
+}
+
+TEST_P(JobQueueTest, OwnedScheduledJobsAreExecutedInOrder) {
   std::vector<int> values;
   job_owner_.Schedule([&]() { values.push_back(1); });
   job_owner_.Schedule([&]() { values.push_back(2); });
@@ -59,7 +65,7 @@ TEST_F(JobQueueTest, OwnedScheduledJobsAreExecutedInOrder) {
   EXPECT_THAT(values, ElementsAre(1, 2, 3, 4, 5, 6, 7, 8));
 }
 
-TEST_F(JobQueueTest, OwnedJobsAreRemovedWhenOwnerGoesOutOfScope) {
+TEST_P(JobQueueTest, OwnedJobsAreRemovedWhenOwnerGoesOutOfScope) {
   std::atomic_bool job_1 = {false}, job_2 = {false};
   {
     JobQueue::JobOwner job_owner(&job_queue_);
@@ -75,7 +81,7 @@ TEST_F(JobQueueTest, OwnedJobsAreRemovedWhenOwnerGoesOutOfScope) {
   EXPECT_TRUE(job_2);
 }
 
-TEST_F(JobQueueTest, CancelPendingJobsCancelsPendingJobs) {
+TEST_P(JobQueueTest, CancelPendingJobsCancelsPendingJobs) {
   std::atomic_bool job_1 = {false}, job_2 = {false};
 
   job_owner_.Schedule([&] { job_1 = true; });
@@ -93,7 +99,7 @@ TEST_F(JobQueueTest, CancelPendingJobsCancelsPendingJobs) {
   EXPECT_TRUE(job_2);
 }
 
-TEST_F(JobQueueTest, RemovedJobsAreRemoved) {
+TEST_P(JobQueueTest, RemovedJobsAreRemoved) {
   std::atomic_bool job_1 = {false}, job_2 = {false};
   auto job_token_1 = job_queue_.Schedule([&]() { job_1 = true; });
   auto job_token_2 = job_queue_.Schedule([&]() { job_2 = true; });
@@ -111,7 +117,7 @@ TEST_F(JobQueueTest, RemovedJobsAreRemoved) {
   job_queue_.RemoveJobByToken(&job_token_2);
 }
 
-TEST_F(JobQueueTest, RunUntilStoppedExecutesAllRemainingJobs) {
+TEST_P(JobQueueTest, RunUntilStoppedExecutesAllRemainingJobs) {
   int64_t start = CurrentMonotonicTime();
   std::atomic_bool job_1 = {false}, job_2 = {false}, job_3 = {false};
   job_queue_.Schedule([&job_1]() { job_1 = true; });
@@ -133,7 +139,7 @@ TEST_F(JobQueueTest, RunUntilStoppedExecutesAllRemainingJobs) {
   EXPECT_GE(CurrentMonotonicTime() - start, 3 * kPrecisionUsec);
 }
 
-TEST_F(JobQueueTest, JobsAreMovedAndNotCopied) {
+TEST_P(JobQueueTest, JobsAreMovedAndNotCopied) {
   struct MoveMe {
    public:
     MoveMe() {}
@@ -163,7 +169,7 @@ TEST_F(JobQueueTest, JobsAreMovedAndNotCopied) {
   EXPECT_TRUE(moved);
 }
 
-TEST_F(JobQueueTest, MoveOnlyLambdaIsAccepted) {
+TEST_P(JobQueueTest, MoveOnlyLambdaIsAccepted) {
   std::atomic_bool executed = false;
   auto move_only_obj = std::make_unique<int>(42);
 
@@ -176,15 +182,142 @@ TEST_F(JobQueueTest, MoveOnlyLambdaIsAccepted) {
   EXPECT_TRUE(executed);
 }
 
-TEST_F(JobQueueTest, NullFunctionPointerIsInvalidJob) {
+TEST_P(JobQueueTest, NullFunctionPointerIsInvalidJob) {
   void (*null_func)() = nullptr;
   JobQueue::Job job(null_func);
   EXPECT_FALSE(job);
 }
 
-TEST_F(JobQueueTest, QueueBelongsToCorrectThread) {
+TEST_P(JobQueueTest, QueueBelongsToCorrectThread) {
   EXPECT_TRUE(job_queue_.BelongsToCurrentThread());
 }
+
+TEST_P(JobQueueTest, ReadyDelayedJobsRunBeforeLaterImmediateJobs) {
+  std::vector<int> values;
+  job_queue_.Schedule([&]() { values.push_back(1); }, 1 * kPrecisionUsec);
+  job_queue_.Schedule([&]() { values.push_back(2); }, 2 * kPrecisionUsec);
+  // Sleep past the delayed jobs, and then schedule an immediate job, which has
+  // a later scheduled time than both delayed jobs.
+  usleep(3 * kPrecisionUsec);
+  job_queue_.Schedule([&]() { values.push_back(3); });
+  job_queue_.Schedule([&]() { values.push_back(4); }, 1 * kPrecisionUsec);
+
+  job_queue_.RunUntilIdle();
+  EXPECT_THAT(values, ElementsAre(1, 2, 3));
+
+  usleep(2 * kPrecisionUsec);
+  job_queue_.RunUntilIdle();
+  EXPECT_THAT(values, ElementsAre(1, 2, 3, 4));
+}
+
+TEST_P(JobQueueTest, ImmediateJobsRunBeforeLaterDelayedJobs) {
+  std::vector<int> values;
+  job_queue_.Schedule([&]() { values.push_back(1); });
+  job_queue_.Schedule([&]() { values.push_back(2); }, 1 * kPrecisionUsec);
+  job_queue_.Schedule([&]() { values.push_back(3); });
+
+  usleep(2 * kPrecisionUsec);
+  job_queue_.RunUntilIdle();
+  EXPECT_THAT(values, ElementsAre(1, 3, 2));
+}
+
+TEST_P(JobQueueTest, RemoveJobByTokenRemovesImmediateAndDelayedJobs) {
+  std::vector<int> values;
+  auto token_1 = job_queue_.Schedule([&]() { values.push_back(1); });
+  auto token_2 = job_queue_.Schedule([&]() { values.push_back(2); });
+  auto token_3 = job_queue_.Schedule([&]() { values.push_back(3); });
+  auto token_4 =
+      job_queue_.Schedule([&]() { values.push_back(4); }, 1 * kPrecisionUsec);
+  auto token_5 =
+      job_queue_.Schedule([&]() { values.push_back(5); }, 1 * kPrecisionUsec);
+  auto token_6 =
+      job_queue_.Schedule([&]() { values.push_back(6); }, 1 * kPrecisionUsec);
+
+  // Remove jobs from the middle, the front and the back of the queues.
+  job_queue_.RemoveJobByToken(&token_2);
+  job_queue_.RemoveJobByToken(&token_1);
+  job_queue_.RemoveJobByToken(&token_5);
+  job_queue_.RemoveJobByToken(&token_6);
+  EXPECT_FALSE(token_1);
+  EXPECT_FALSE(token_2);
+  EXPECT_FALSE(token_5);
+  EXPECT_FALSE(token_6);
+  EXPECT_TRUE(token_3);
+  EXPECT_TRUE(token_4);
+
+  usleep(2 * kPrecisionUsec);
+  job_queue_.RunUntilIdle();
+  EXPECT_THAT(values, ElementsAre(3, 4));
+
+  // Removing jobs that already ran is a no-op.
+  job_queue_.RemoveJobByToken(&token_3);
+  job_queue_.RemoveJobByToken(&token_4);
+  EXPECT_FALSE(token_3);
+  EXPECT_FALSE(token_4);
+}
+
+TEST_P(JobQueueTest, CancelPendingJobsCancelsImmediateAndDelayedJobs) {
+  std::vector<int> values;
+  job_queue_.Schedule([&]() { values.push_back(1); });
+  job_owner_.Schedule([&]() { values.push_back(2); });
+  job_queue_.Schedule([&]() { values.push_back(3); });
+  job_owner_.Schedule([&]() { values.push_back(4); }, 1 * kPrecisionUsec);
+  job_queue_.Schedule([&]() { values.push_back(5); }, 1 * kPrecisionUsec);
+  job_owner_.Schedule([&]() { values.push_back(6); }, 1 * kPrecisionUsec);
+
+  job_owner_.CancelPendingJobs();
+
+  usleep(2 * kPrecisionUsec);
+  job_queue_.RunUntilIdle();
+  EXPECT_THAT(values, ElementsAre(1, 3, 5));
+}
+
+TEST_P(JobQueueTest, JobsAreDestroyedWhenRemoved) {
+  struct DestructionTracker {
+    explicit DestructionTracker(int* destroyed) : destroyed(destroyed) {}
+    ~DestructionTracker() {
+      if (destroyed) {
+        ++*destroyed;
+      }
+    }
+    DestructionTracker(DestructionTracker&& other)
+        : destroyed(other.destroyed) {
+      other.destroyed = nullptr;
+    }
+    int* destroyed;
+  };
+
+  int destroyed = 0;
+  auto token =
+      job_queue_.Schedule([tracker = DestructionTracker(&destroyed)] {});
+  job_owner_.Schedule([tracker = DestructionTracker(&destroyed)] {},
+                      1 * kPrecisionUsec);
+  job_queue_.Schedule([tracker = DestructionTracker(&destroyed)] {},
+                      1 * kPrecisionUsec);
+
+  job_queue_.RemoveJobByToken(&token);
+  EXPECT_EQ(destroyed, 1);
+  job_owner_.CancelPendingJobs();
+  EXPECT_EQ(destroyed, 2);
+  job_queue_.StopSoon();
+  EXPECT_EQ(destroyed, 3);
+}
+
+TEST_P(JobQueueTest, ScheduleAfterStopIsRejected) {
+  std::atomic_bool job_1 = {false};
+  job_queue_.StopSoon();
+  auto token = job_queue_.Schedule([&]() { job_1 = true; });
+  EXPECT_FALSE(token);
+  job_queue_.RunUntilIdle();
+  EXPECT_FALSE(job_1);
+}
+
+INSTANTIATE_TEST_SUITE_P(JobQueueImplementations,
+                         JobQueueTest,
+                         ::testing::Bool(),
+                         [](const ::testing::TestParamInfo<bool>& info) {
+                           return info.param ? "Optimized" : "Legacy";
+                         });
 
 }  // namespace
 

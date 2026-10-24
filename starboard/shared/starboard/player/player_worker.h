@@ -117,6 +117,8 @@ class PlayerWorker {
     Handler& operator=(const Handler&) = delete;
   };
 
+  // |use_optimized_job_queue| selects the JobQueue implementation of the
+  // worker thread, see the JobQueue class comment.
   PlayerWorker(SbMediaAudioCodec audio_codec,
                SbMediaVideoCodec video_codec,
                std::unique_ptr<Handler> handler,
@@ -125,7 +127,8 @@ class PlayerWorker {
                SbPlayerStatusFunc player_status_func,
                SbPlayerErrorFunc player_error_func,
                SbPlayer player,
-               void* context);
+               void* context,
+               bool use_optimized_job_queue = false);
   ~PlayerWorker();
 
   PlayerWorker(const PlayerWorker&) = delete;

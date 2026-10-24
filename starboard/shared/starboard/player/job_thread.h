@@ -42,10 +42,16 @@ namespace starboard {
 // caller level.
 class JobThread {
  public:
+  // |use_optimized_job_queue| selects the JobQueue implementation, see the
+  // JobQueue class comment.  With the original implementation the JobQueue is
+  // created on the new thread and Create() waits for the thread to start; with
+  // the optimized implementation the JobQueue is created detached and bound to
+  // the new thread when it starts, so Create() returns immediately.
   static std::unique_ptr<JobThread> Create(
       std::string_view thread_name,
       const ThreadOptions& options =
-          ThreadOptions().SetPriority(ThreadPriority::kNormal));
+          ThreadOptions().SetPriority(ThreadPriority::kNormal),
+      bool use_optimized_job_queue = false);
   ~JobThread();
 
   bool BelongsToCurrentThread() const {

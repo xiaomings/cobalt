@@ -24,12 +24,24 @@ namespace starboard {
 
 class JobThread::WorkerThread : public Thread {
  public:
-  explicit WorkerThread(std::string_view thread_name,
-                        const ThreadOptions& options)
-      : Thread(thread_name, options) {}
+  // When |detached_job_queue| is null (original JobQueue implementation), the
+  // JobQueue is created on the worker thread and handed over to the creating
+  // thread via TakeJobQueue().  Otherwise the given detached JobQueue is bound
+  // to the worker thread when it starts.
+  WorkerThread(std::string_view thread_name,
+               const ThreadOptions& options,
+               JobQueue* detached_job_queue)
+      : Thread(thread_name, options), detached_job_queue_(detached_job_queue) {}
 
   void Run() override {
-    auto job_queue = std::make_unique<JobQueue>();
+    if (detached_job_queue_) {
+      detached_job_queue_->BindToCurrentThread();
+      detached_job_queue_->RunUntilStopped();
+      return;
+    }
+
+    auto job_queue =
+        std::make_unique<JobQueue>(/*use_optimized_implementation=*/false);
     JobQueue* job_queue_ptr = job_queue.get();
     {
       std::lock_guard lock(mutex_);
@@ -40,20 +52,38 @@ class JobThread::WorkerThread : public Thread {
   }
 
   std::unique_ptr<JobQueue> TakeJobQueue() {
+    SB_DCHECK(!detached_job_queue_);
     std::unique_lock lock(mutex_);
     cv_.wait(lock, [this] { return job_queue_to_transfer_ != nullptr; });
     return std::move(job_queue_to_transfer_);
   }
 
  private:
+  JobQueue* const detached_job_queue_;
   std::mutex mutex_;
   std::condition_variable cv_;
   std::unique_ptr<JobQueue> job_queue_to_transfer_;
 };
 
 std::unique_ptr<JobThread> JobThread::Create(std::string_view thread_name,
-                                             const ThreadOptions& options) {
-  auto thread = std::make_unique<WorkerThread>(thread_name, options);
+                                             const ThreadOptions& options,
+                                             bool use_optimized_job_queue) {
+  if (use_optimized_job_queue) {
+    // The JobQueue is created detached from any thread and attached to the
+    // worker thread once it runs, so creating a JobThread doesn't have to wait
+    // for the new thread to be scheduled.  Jobs can be scheduled right away,
+    // the worker thread picks them up when it starts.
+    auto job_queue = std::make_unique<JobQueue>(
+        JobQueue::kDetachedFromThread, /*use_optimized_implementation=*/true);
+    auto thread =
+        std::make_unique<WorkerThread>(thread_name, options, job_queue.get());
+    thread->Start();
+    return std::unique_ptr<JobThread>(
+        new JobThread(std::move(thread), std::move(job_queue)));
+  }
+
+  auto thread = std::make_unique<WorkerThread>(thread_name, options,
+                                               /*detached_job_queue=*/nullptr);
   thread->Start();
   auto job_queue = thread->TakeJobQueue();
   return std::unique_ptr<JobThread>(

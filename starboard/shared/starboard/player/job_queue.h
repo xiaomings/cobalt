@@ -15,6 +15,7 @@
 #ifndef STARBOARD_SHARED_STARBOARD_PLAYER_JOB_QUEUE_H_
 #define STARBOARD_SHARED_STARBOARD_PLAYER_JOB_QUEUE_H_
 
+#include <algorithm>
 #include <condition_variable>
 #include <cstddef>
 #include <functional>
@@ -46,6 +47,19 @@ namespace starboard {
 // This class implements a job queue where jobs can be posted to it on any
 // thread and will be processed on one thread that this job queue is linked to.
 // A thread can only have one job queue.
+//
+// Jobs are run in the order of their scheduled time (i.e. the time Schedule()
+// is called plus the delay), and jobs with the same scheduled time are run in
+// the order they are scheduled.
+//
+// Two implementations are available, selected at construction time:
+// - The original implementation, which keeps all jobs in one time ordered map
+//   and waits on a std::condition_variable.
+// - The optimized implementation, which keeps the jobs without a delay in a
+//   FIFO (no allocation and O(1) per job), only wakes the thread running the
+//   jobs when it is actually waiting, waits on CLOCK_MONOTONIC deadlines, and
+//   can be created detached from any thread.
+// Both implementations have exactly the same observable behavior.
 class JobQueue {
  public:
   // A move-only type-erased wrapper for callables with signature void().
@@ -141,12 +155,18 @@ class JobQueue {
     }
 
    private:
-    // 24 bytes is large enough to fit most common callables, such as:
+    // The inline storage is large enough to fit the most common callables
+    // without a heap allocation:
     // - Standard function pointers (8 bytes)
     // - Member function pointers (up to 16 bytes)
     // - Small lambdas capturing up to 3 pointers (e.g., 'this' and a couple of
     //   arguments)
-    static constexpr size_t kInlineStorageSize = 24;
+    // - std::function objects, as the player code mostly schedules its
+    //   std::function members (e.g. `Schedule(output_cb_)`).  std::function is
+    //   16 bytes on 32-bit and 32 bytes on 64-bit platforms with libc++, so
+    //   the storage is 24 bytes on 32-bit and 32 bytes on 64-bit platforms.
+    static constexpr size_t kInlineStorageSize =
+        std::max(sizeof(std::function<void()>), static_cast<size_t>(24));
     static constexpr size_t kInlineStorageAlignment = alignof(std::max_align_t);
 
     union Buffer {
@@ -205,23 +225,34 @@ class JobQueue {
    public:
     static const JobToken kUnscheduled;
 
-    explicit operator bool() const { return token_.has_value(); }
+    explicit operator bool() const { return token_ != kInvalidToken; }
 
    private:
     friend class JobQueue;
 
-    static JobToken Generate();
+    static constexpr int64_t kInvalidToken = 0;
+
+    // Tokens are generated in a strictly increasing order.  |scheduled_time|
+    // and |is_delayed| are only used by the optimized implementation to locate
+    // the job quickly when it is removed.
+    static JobToken Generate(int64_t scheduled_time = 0,
+                             bool is_delayed = false);
 
     JobToken() = default;
-    explicit JobToken(int64_t token) : token_(token) {}
+    JobToken(int64_t token, int64_t scheduled_time, bool is_delayed)
+        : token_(token),
+          scheduled_time_(scheduled_time),
+          is_delayed_(is_delayed) {}
 
-    void Reset() { token_ = std::nullopt; }
+    void Reset() { token_ = kInvalidToken; }
 
     bool operator==(const JobToken& that) const {
       return token_ == that.token_;
     }
 
-    std::optional<int64_t> token_;
+    int64_t token_ = kInvalidToken;
+    int64_t scheduled_time_ = 0;
+    bool is_delayed_ = false;
   };
 
   class JobOwner {
@@ -273,8 +304,23 @@ class JobQueue {
     JobQueue* job_queue_;
   };
 
-  JobQueue();
+  // Creates a JobQueue that runs its jobs on the current thread.
+  // |use_optimized_implementation| selects the implementation, see the class
+  // comment.  The default is the original implementation.
+  explicit JobQueue(bool use_optimized_implementation = false);
+
+  // Creates a JobQueue that is not yet attached to any thread.  The thread
+  // running the jobs has to call BindToCurrentThread() before running any
+  // job.  Jobs can be scheduled from any thread before that.  This allows a
+  // JobThread to create its JobQueue without waiting for the new thread to
+  // start.  Only supported by the optimized implementation.
+  enum DetachedFromThread { kDetachedFromThread };
+  JobQueue(DetachedFromThread, bool use_optimized_implementation);
   ~JobQueue();
+
+  // Attaches a JobQueue created with |kDetachedFromThread| to the current
+  // thread.  Can only be called once.
+  void BindToCurrentThread();
 
   JobToken Schedule(Job job, int64_t delay_usec = 0);
   void ScheduleAndWait(Job job);
@@ -288,48 +334,24 @@ class JobQueue {
   void RunUntilStopped();
   void RunUntilIdle();
 
+  // Returns true when called on the thread this JobQueue is attached to.
+  // Returns false on any thread when the JobQueue isn't attached yet.
   bool BelongsToCurrentThread() const;
 
- private:
-#if ENABLE_JOB_QUEUE_PROFILING
-  // Reset the max value periodically to catch all local peaks.
-  static const int64_t kProfileResetIntervalUsec = 1'000'000;  // 1 second
-  static const int kProfileStackDepth = 10;
-#endif  // ENABLE_JOB_QUEUE_PROFILING
+  bool uses_optimized_implementation() const {
+    return uses_optimized_implementation_;
+  }
 
-  struct JobRecord {
-    JobToken job_token;
-    Job job;
-    JobOwner* owner;
-#if ENABLE_JOB_QUEUE_PROFILING
-    void* stack[kProfileStackDepth];
-    int stack_size;
-#endif  // ENABLE_JOB_QUEUE_PROFILING
-  };
-  typedef std::multimap<int64_t, JobRecord> TimeToJobRecordMap;
+ private:
+  class Impl;
+  class LegacyImpl;
+  class OptimizedImpl;
 
   JobToken Schedule(Job job, JobOwner* owner, int64_t delay_usec);
   void RemoveJobsByOwner(JobOwner* owner);
-  // Return true if a job is run, otherwise return false.  When there is no job
-  // ready to run currently and |wait_for_next_job| is true, the function will
-  // wait to until a job is available or if the |queue_| is woken up.  Note that
-  // set |wait_for_next_job| to true doesn't guarantee that one job will always
-  // be run.
-  bool TryToRunOneJob(bool wait_for_next_job);
 
-  ThreadChecker thread_checker_;
-  std::mutex mutex_;
-  std::condition_variable condition_;
-  TimeToJobRecordMap time_to_job_record_map_;  // Guarded by |mutex_|.
-  bool stopped_ = false;
-
-#if ENABLE_JOB_QUEUE_PROFILING
-  int64_t last_reset_time_ = CurrentMonotonicTime();
-  JobRecord job_record_with_max_interval_;
-  int64_t max_job_interval_ = 0;
-  int jobs_processed_ = 0;
-  int wait_times_ = 0;
-#endif  // ENABLE_JOB_QUEUE_PROFILING
+  const bool uses_optimized_implementation_;
+  const std::unique_ptr<Impl> impl_;
 };
 
 }  // namespace starboard

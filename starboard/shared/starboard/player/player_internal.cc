@@ -23,6 +23,8 @@
 #include "starboard/common/log.h"
 #include "starboard/common/media.h"
 #include "starboard/common/time.h"
+#include "starboard/shared/starboard/application.h"
+#include "starboard/shared/starboard/features.h"
 
 namespace starboard {
 namespace {
@@ -32,6 +34,26 @@ int64_t CalculateMediaTime(int64_t media_time,
                            double playback_rate) {
   int64_t elapsed = CurrentMonotonicTime() - media_time_update_time;
   return media_time + static_cast<int64_t>(elapsed * playback_rate);
+}
+
+// Returns whether the player worker thread should use the optimized JobQueue
+// implementation.  It is selected via the "UseOptimizedPlayerJobQueue" feature
+// on Android, and via the "--use_optimized_player_job_queue" command line
+// switch on the other platforms.
+bool ShouldUseOptimizedPlayerJobQueue() {
+  bool use_optimized_job_queue = false;
+#if BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_STARBOARD)
+  use_optimized_job_queue =
+      features::FeatureList::IsEnabled(features::kUseOptimizedPlayerJobQueue);
+#else   // BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_STARBOARD)
+  auto command_line = Application::Get()->GetCommandLine();
+  use_optimized_job_queue =
+      command_line->HasSwitch("use_optimized_player_job_queue");
+#endif  // BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_STARBOARD)
+  SB_LOG(INFO) << "Player worker uses the "
+               << (use_optimized_job_queue ? "optimized" : "original")
+               << " JobQueue implementation.";
+  return use_optimized_job_queue;
 }
 
 }  // namespace
@@ -61,7 +83,8 @@ SbPlayerPrivateImpl::SbPlayerPrivateImpl(
           player_status_func,
           player_error_func,
           /*player=*/this,
-          context)) {
+          context,
+          ShouldUseOptimizedPlayerJobQueue())) {
   ++number_of_players_;
   SB_LOG(INFO) << "Creating SbPlayerPrivateImpl. There are "
                << number_of_players_ << " players.";

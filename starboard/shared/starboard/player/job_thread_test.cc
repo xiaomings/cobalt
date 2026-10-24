@@ -20,6 +20,7 @@
 #include <condition_variable>
 #include <memory>
 #include <mutex>
+#include <string_view>
 #include <vector>
 
 #include "starboard/common/log.h"
@@ -41,9 +42,26 @@ void ExecutePendingJobs(JobThread* job_thread) {
   job_thread->ScheduleAndWait([]() {});
 }
 
-TEST(JobThreadTest, ScheduledJobsAreExecutedInOrder) {
+// The tests are run against both JobQueue implementations, the parameter is
+// |use_optimized_job_queue|.
+class JobThreadTest : public ::testing::TestWithParam<bool> {
+ protected:
+  std::unique_ptr<JobThread> CreateJobThread(std::string_view name) {
+    return JobThread::Create(
+        name, ThreadOptions().SetPriority(ThreadPriority::kNormal), GetParam());
+  }
+};
+
+TEST_P(JobThreadTest, UsesRequestedImplementation) {
+  auto job_thread = CreateJobThread("JobThreadTests");
+  EXPECT_EQ(job_thread->job_queue()->uses_optimized_implementation(),
+            GetParam());
+  job_thread->Stop();
+}
+
+TEST_P(JobThreadTest, ScheduledJobsAreExecutedInOrder) {
   std::vector<int> values;
-  auto job_thread = JobThread::Create("JobThreadTests");
+  auto job_thread = CreateJobThread("JobThreadTests");
   job_thread->Schedule([&]() { values.push_back(1); });
   job_thread->Schedule([&]() { values.push_back(2); });
   job_thread->Schedule([&]() { values.push_back(3); });
@@ -62,10 +80,10 @@ TEST(JobThreadTest, ScheduledJobsAreExecutedInOrder) {
   job_thread->Stop();
 }
 
-TEST(JobThreadTest, ScheduleAndWaitWaits) {
+TEST_P(JobThreadTest, ScheduleAndWaitWaits) {
   int64_t start = CurrentMonotonicTime();
   std::atomic_bool job_1 = {false};
-  auto job_thread = JobThread::Create("JobThreadTests");
+  auto job_thread = CreateJobThread("JobThreadTests");
   job_thread->ScheduleAndWait([&]() {
     usleep(1 * kPrecisionUsec);
     job_1 = true;
@@ -76,10 +94,10 @@ TEST(JobThreadTest, ScheduleAndWaitWaits) {
   job_thread->Stop();
 }
 
-TEST(JobThreadTest, AcceptsMoveOnlyLambda) {
+TEST_P(JobThreadTest, AcceptsMoveOnlyLambda) {
   std::atomic_bool executed = false;
   auto move_only_obj = std::make_unique<int>(100);
-  auto job_thread = JobThread::Create("JobThreadTests");
+  auto job_thread = CreateJobThread("JobThreadTests");
 
   job_thread->ScheduleAndWait([ptr = std::move(move_only_obj), &executed]() {
     EXPECT_EQ(*ptr, 100);
@@ -90,10 +108,10 @@ TEST(JobThreadTest, AcceptsMoveOnlyLambda) {
   job_thread->Stop();
 }
 
-TEST(JobThreadTest, ScheduledJobsShouldNotExecuteAfterGoingOutOfScope) {
+TEST_P(JobThreadTest, ScheduledJobsShouldNotExecuteAfterGoingOutOfScope) {
   std::atomic_int counter = {0};
   {
-    auto job_thread = JobThread::Create("JobThreadTests");
+    auto job_thread = CreateJobThread("JobThreadTests");
     std::function<void()> job = [&]() {
       counter++;
       job_thread->Schedule(job, 2 * kPrecisionUsec);
@@ -113,12 +131,12 @@ TEST(JobThreadTest, ScheduledJobsShouldNotExecuteAfterGoingOutOfScope) {
   EXPECT_EQ(counter, end_value);
 }
 
-TEST(JobThreadTest, CanceledJobsAreCanceled) {
+TEST_P(JobThreadTest, CanceledJobsAreCanceled) {
   std::atomic_int counter_1 = {0}, counter_2 = {0};
   JobQueue::JobToken job_token_1 = JobQueue::JobToken::kUnscheduled;
   JobQueue::JobToken job_token_2 = JobQueue::JobToken::kUnscheduled;
 
-  auto job_thread = JobThread::Create("JobThreadTests");
+  auto job_thread = CreateJobThread("JobThreadTests");
   std::function<void()> job_1 = [&]() {
     counter_1++;
     job_token_1 = job_thread->Schedule(job_1);
@@ -156,9 +174,15 @@ TEST(JobThreadTest, CanceledJobsAreCanceled) {
   job_thread->Stop();
 }
 
-TEST(JobThreadTest, QueueBelongsToCorrectThread) {
-  auto job_thread = JobThread::Create("JobThreadTests");
-  JobQueue job_queue;
+TEST_P(JobThreadTest, QueueBelongsToCorrectThread) {
+  auto job_thread = CreateJobThread("JobThreadTests");
+  JobQueue job_queue(GetParam());
+
+  // The JobThread's queue never belongs to the creating thread, whether or
+  // not the worker thread has started running yet.
+  EXPECT_FALSE(job_thread->BelongsToCurrentThread());
+  EXPECT_FALSE(job_thread->job_queue()->BelongsToCurrentThread());
+  EXPECT_TRUE(job_queue.BelongsToCurrentThread());
 
   bool belongs_to_job_thread = false;
   bool belongs_to_main_thread = false;
@@ -186,12 +210,12 @@ TEST(JobThreadTest, QueueBelongsToCorrectThread) {
   job_thread->Stop();
 }
 
-TEST(JobThreadTest, Stop) {
+TEST_P(JobThreadTest, Stop) {
   std::mutex mutex;
   std::condition_variable cv;
   bool started = false;
 
-  auto job_thread = JobThread::Create("test");
+  auto job_thread = CreateJobThread("test");
 
   job_thread->Schedule([&] {
     {
@@ -216,6 +240,39 @@ TEST(JobThreadTest, Stop) {
   // captured reference remains valid and non-null while the task is running.
   job_thread->Stop();
 }
+
+TEST_P(JobThreadTest, JobsScheduledRightAfterCreationAreExecuted) {
+  // Jobs scheduled before the worker thread had a chance to start must still
+  // be executed, in order.
+  for (int i = 0; i < 20; ++i) {
+    std::vector<int> values;
+    auto job_thread = CreateJobThread("JobThreadTests");
+    job_thread->Schedule([&]() { values.push_back(1); });
+    job_thread->Schedule([&]() { values.push_back(2); }, 1 * kPrecisionUsec);
+    job_thread->Schedule([&]() { values.push_back(3); });
+    usleep(2 * kPrecisionUsec);
+    ExecutePendingJobs(job_thread.get());
+    EXPECT_THAT(values, ElementsAre(1, 3, 2));
+    job_thread->Stop();
+  }
+}
+
+TEST_P(JobThreadTest, StopRightAfterCreation) {
+  for (int i = 0; i < 20; ++i) {
+    std::atomic_bool executed = false;
+    auto job_thread = CreateJobThread("JobThreadTests");
+    job_thread->Schedule([&]() { executed = true; }, 10 * kPrecisionUsec);
+    job_thread->Stop();
+    EXPECT_FALSE(executed);
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(JobQueueImplementations,
+                         JobThreadTest,
+                         ::testing::Bool(),
+                         [](const ::testing::TestParamInfo<bool>& info) {
+                           return info.param ? "Optimized" : "Legacy";
+                         });
 
 }  // namespace
 

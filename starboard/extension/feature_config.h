@@ -150,6 +150,14 @@ STARBOARD_FEATURE(kReleaseVideoFramesAfterAudioStarts,
                   "ReleaseVideoFramesAfterAudioStarts",
                   false)
 
+// By default, the player worker thread uses the original JobQueue
+// implementation. Set the following variable to true to use the optimized
+// implementation (FIFO for immediate jobs, no wake ups of a busy worker,
+// CLOCK_MONOTONIC based timed waits, non-blocking thread creation).
+STARBOARD_FEATURE(kUseOptimizedPlayerJobQueue,
+                  "UseOptimizedPlayerJobQueue",
+                  false)
+
 // By default, stub audio decoder is disabled.
 STARBOARD_FEATURE(kUseStubAudioDecoder, "UseStubAudioDecoder", false)
 

@@ -30,7 +30,8 @@ class ThreadChecker {
 
   bool CalledOnValidThread() const { return thread_id_ == GetThreadId(); }
 
- private:
+  // Returns the id of the current thread.  The id is cached in thread-local
+  // storage, so it is much cheaper than calling gettid() directly.
   static inline pid_t GetThreadId() {
     // NOTE: We can cache the thread ID in thread-local storage since Cobalt
     // doesn't use fork(). If fork() were used, the child process would inherit
@@ -44,6 +45,7 @@ class ThreadChecker {
     return tls_thread_id;
   }
 
+ private:
   const pid_t thread_id_;
 };
 

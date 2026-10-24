@@ -51,10 +51,12 @@ PlayerWorker::PlayerWorker(SbMediaAudioCodec audio_codec,
                            SbPlayerStatusFunc player_status_func,
                            SbPlayerErrorFunc player_error_func,
                            SbPlayer player,
-                           void* context)
-    : job_thread_(JobThread::Create(
-          "player_worker",
-          ThreadOptions().SetPriority(ThreadPriority::kHigh))),
+                           void* context,
+                           bool use_optimized_job_queue)
+    : job_thread_(
+          JobThread::Create("player_worker",
+                            ThreadOptions().SetPriority(ThreadPriority::kHigh),
+                            use_optimized_job_queue)),
       audio_codec_(audio_codec),
       video_codec_(video_codec),
       handler_(std::move(handler)),
